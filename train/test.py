@@ -1,11 +1,11 @@
-import torch
-import os
-from torch.autograd import Variable
 import argparse
-from train import RnnModel
-from load_data import load_data
+import os
+
+import torch
+from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset
 
+from load_data import load_data
 
 # parameters
 batch_size = 4
@@ -58,7 +58,7 @@ def get_args():
 def main():
     phone_level_dur = "../baseline/phone_level/dur/{}.txt"
     args = get_args()
-    test_scp = args.scp_dir + "/test.scp"
+    test_scp = args.scp_dir + "/all.scp"
 
     os.system("mkdir -p result/dur")
 
@@ -74,39 +74,46 @@ def main():
     rnn_model = torch.load(args.model)
 
     for _, tmp in enumerate(vcc_test_loader):
-        data = Variable(tmp['data']).cuda()
-
-        length = list(tmp['length'])
+        data = tmp['data']
+        length = tmp['length']
         wav_id = tmp['wav_id']
-        outputs, length1 = rnn_model(data, length)
+
+        max_len = int(torch.max(length))
+        data = data[:, :max_len, :]
+
+        sorted_length, indices = torch.sort(
+            length.view(-1), dim=0, descending=True)
+        sorted_length = sorted_length.long().numpy()
+
+        data = data[indices]
+        
         new_wav_id = []
-        max_length = max(length1)
+        for index in indices:
+            new_wav_id.append(wav_id[index])
+        
+        data = Variable(data).cuda()
 
-        for i in range(len(length1)):
-            j = length.index(length1[i])
-            new_wav_id.append(wav_id[j])
+        outputs, out_length = rnn_model(data, sorted_length)
 
-        for i, each_length in enumerate(length1):
-            tmp_outputs = outputs[i*max_length:(i+1)*max_length]
-            cur_wav_id = new_wav_id[i]
-            cur_pl_dur = phone_level_dur.format(cur_wav_id)
+        outputs = outputs.view(data.size(0), -1)
+
+        for i, each_length in enumerate(out_length):
+            each_id = new_wav_id[i]
+            each_out = outputs[i]
+            each_length = out_length[i]
+            
+            cur_pl_dur = phone_level_dur.format(each_id)
             frames_list = []
             with open(cur_pl_dur, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
                 for line in lines:
                     frames_list.append(int(line.strip()))
 
-            with open("result/dur/{}.txt".format(cur_wav_id), 'w', encoding='utf-8') as f:
+            with open("result/dur/{}.txt".format(each_id), 'w', encoding='utf-8') as f:
                 f.write(str(frames_list[0]) + "\n")
-                for j, x in enumerate(tmp_outputs[:each_length].cpu().data.numpy()):
+                for j, x in enumerate(each_out[:each_length].cpu().data.numpy()):
                     x = int(x)
-                    # print(x, frames_list[j+1])
-                    # if x/frames_list[j+1] < 0.6 or frames_list[j+1]/x < 0.6:
-                    #     f.write(str(frames_list[j+1]) + "\n")
-                    #     print("phone level")
-                    # else:
                     f.write(str(x) + "\n")
-                        # print("origin")
                 f.write(str(frames_list[-1]) + "\n")
 
 

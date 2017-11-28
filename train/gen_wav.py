@@ -120,5 +120,5 @@ def convert_feature(dim, input_file, output_file, source_lines, predict_frames):
 
 
 if __name__ == '__main__':
-    feature_dir_template = "/speechlab/users/jhl00/syn24/mlpg_wav/{}_{}_blstm/"
-    convert("VCC2SM1", 'VCC2TM1', "../dur/", './vcc_scp/test.scp', feature_dir_template)
+    feature_dir_template = "/speechlab/users/jhl00/syn24/mlpg_wav/{}_{}_all/"
+    convert("VCC2SM1", 'VCC2TM1', "../dur/", './vcc_scp/all.scp', feature_dir_template)

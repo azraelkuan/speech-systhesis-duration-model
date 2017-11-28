@@ -14,7 +14,7 @@ hidden_size = 64
 num_layers = 1
 num_classes = 1
 batch_size = 4
-num_epochs = 100
+num_epochs = 200
 learning_rate = 0.01
 dropout = 0.5
 data_name = 'vcc'
@@ -78,57 +78,53 @@ class RnnModel(nn.Module):
         self.num_layers = num_layers
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout, bidirectional=True)
         self.relu = nn.ReLU()
-        self.fc1 = nn.Linear(hidden_size*2, hidden_size)
-        self.fc = nn.Linear(hidden_size, num_classes)
+        self.fc = nn.Linear(hidden_size*2, num_classes)
 
     def forward(self, x, length):
         # init h0, c0
         h0 = Variable(torch.zeros(self.num_layers*2, x.size(0), self.hidden_size)).cuda()
         c0 = Variable(torch.zeros(self.num_layers*2, x.size(0), self.hidden_size)).cuda()
 
-        x_tmp = x.clone()
-        length_sort = length[:]
-        length_sort = sorted(length_sort, reverse=True)
-        for i in range(len(length_sort)):
-            j = length.index(length_sort[i])
-            x_tmp.data[i, :, :] = x.data[j, :, :]
+        x = torch.nn.utils.rnn.pack_padded_sequence(x, length, batch_first=True)
 
-        x_tmp = torch.nn.utils.rnn.pack_padded_sequence(x_tmp, length_sort, batch_first=True)
-
-        out, _ = self.lstm(x_tmp, (h0, c0))
-        self.lstm.flatten_parameters()
+        out, _ = self.lstm(x, (h0, c0))
 
         out, new_length = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
 
         out = out.contiguous().view(out.size(0)*out.size(1), out.size(2))
-        out = self.relu(out)
-        out = self.fc1(out)
-        out = self.relu(out)
+        
         out = self.fc(out)
+
         return out, new_length
 
 
-def test_loss(model, data_loader, ctiterion):
+def test_loss(model, data_loader, criterion):
     loss = 0.
-    model.eval()
     for i, tmp in enumerate(data_loader):
-        data = Variable(tmp['data']).cuda()
+        data = tmp['data']
         label = tmp['label']
-        length = list(tmp['length'])
+        length = tmp['length']
 
-        outputs, length1 = model(data, length)
+        max_len = int(torch.max(length))
+        data = data[:, :max_len, :]
+        label = label[:, :max_len]
 
-        max_length = max(length1)
-        label_new = label.clone()
-        for i in range(len(length1)):
-            j = length.index(length1[i])
-            label_new[i, :] = label[j, :]
+        sorted_length, indices = torch.sort(
+            length.view(-1), dim=0, descending=True)
+        sorted_length = sorted_length.long().numpy()
 
-        label_new = label_new[:, :max_length]
+        data, label = data[indices], label[indices]
 
-        tmp_loss = ctiterion(outputs, Variable(label_new.contiguous().view(-1)).cuda())
+        data = Variable(data).cuda()
+
+        outputs, out_length = model(data, sorted_length)
+
+        outputs = outputs.view(label.size(0), -1)
+
+        tmp_loss = criterion(outputs, Variable(label).cuda())
 
         loss += tmp_loss.data[0]
+
     return loss / len(data_loader)
 
 
@@ -159,29 +155,36 @@ def main():
     print("test data len: %s" % vcc_test_data_set.__len__())
 
     rnn = RnnModel(input_size, args.hidden_size, args.num_layers, num_classes, args.drop_out).cuda()
-    criterion = nn.MSELoss().cuda()
+    criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(rnn.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = ReduceLROnPlateau(optimizer, 'min')
 
     for epoch in range(args.num_epochs):
         train_loss = 0.
-        rnn.train()
         for i, tmp in enumerate(vcc_train_loader):
-            data = Variable(tmp['data']).cuda()
+            data = tmp['data']
             label = tmp['label']
-            length = list(tmp['length'])
+            length = tmp['length']
+            
+            max_len = int(torch.max(length))
+            data = data[:, :max_len,:]
+            label = label[:, :max_len]
+            
+            sorted_length, indices = torch.sort(
+                length.view(-1), dim=0, descending=True)
+            sorted_length = sorted_length.long().numpy()
+
+            data, label = data[indices], label[indices]
+            
+            data = Variable(data).cuda()
 
             optimizer.zero_grad()
-            outputs, length1 = rnn(data, length)
-            max_length = max(length1)
-            label_new = label.clone()
-            for i in range(len(length1)):
-                j = length.index(length1[i])
-                label_new[i, :] = label[j, :]
+            outputs, out_length = rnn(data, sorted_length)
+            
+            outputs = outputs.view(label.size(0), -1)
 
-            label_new = label_new[:, :max_length]
+            loss = criterion(outputs, Variable(label).cuda())
 
-            loss = criterion(outputs, Variable(label_new.contiguous().view(-1)).cuda())
             loss.backward()
             optimizer.step()
             train_loss += loss.data[0]
@@ -205,28 +208,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# test
-# for i, tmp in enumerate(vcc_train_loader):
-#     data = Variable(tmp['data']).cuda()
-#     label = tmp['label']
-#     length = list(tmp['length'])
-#
-#     outputs, length1 = rnn(data, length)
-#
-#     max_length = max(length1)
-#     label_new = label.clone()
-#     for i in range(len(length1)):
-#         j = length.index(length1[i])
-#         label_new[i, :] = label[j, :]
-#
-#     label_new = label_new[:, :max_length]
-#     label_new = label_new.contiguous().view(-1)
-#     for i, each_length in enumerate(length1):
-#         tmp_outputs = outputs[i*max_length:(i+1)*max_length]
-#         tmp_label = label_new[i*max_length:(i+1)*max_length]
-#         print(tmp_outputs[:each_length].cpu())
-#         print(tmp_label[:each_length])
 
 
 

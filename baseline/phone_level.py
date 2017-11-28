@@ -179,8 +179,8 @@ def convert_feature(dim, input_file, output_file, source_lines, target_lines, ph
 if __name__ == '__main__':
     source_speaker = "vcc2sm1".upper()
     target_speaker = "vcc2tm1".upper()
-    scp_dir = "../train_pytorch/vcc_scp/"
-    feature_dir_template = "/speechlab/users/jhl00/syn24/mlpg_wav/{}_{}_nop/"
-    convert(source_speaker, target_speaker, "../dur/", scp_dir+'test.scp', scp_dir+"all.scp", feature_dir_template)
+    scp_dir = "../train/vcc_scp/"
+    feature_dir_template = "/speechlab/users/jhl00/syn24/mlpg_wav/{}_{}_all/"
+    convert(source_speaker, target_speaker, "../dur/", scp_dir+'all.scp', scp_dir+"all.scp", feature_dir_template)
 
 
