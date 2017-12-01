@@ -99,7 +99,7 @@ def convert_feature(dim, input_file, output_file):
 if __name__ == '__main__':
     source_speaker = "vcc2sm1".upper()
     target_speaker = "vcc2tm1".upper()
-    scp_dir = "../train_pytorch/vcc_scp/"
+    scp_dir = "../train/vcc_scp/"
     scale = compute_duration_scale(source_speaker, target_speaker, scp_dir + "all.scp")
     print(scale)
     feature_dir_template = "/speechlab/users/jhl00/syn24/mlpg_wav/{}_{}_nop/"

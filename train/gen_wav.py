@@ -3,12 +3,14 @@ import numpy as np
 import os
 import wave
 from scipy.interpolate import interp1d
+import random
+# from matplotlib import pyplot as plt
 
 
 wav_path_template = "/speechlab/users/jhl00/vc_JDGMM/data/wav/{}/{}.wav"
 out_template = "./result/{}/{}.{}"
 lf0_dim = 1
-mgc_dim = 150
+mgc_dim = 25
 bap_dim = 5
 
 syn = "/speechlab/users/bc299/tools/aitts_syn_tools/synthesis"
@@ -41,7 +43,7 @@ def convert(source_speaker, target_speaker, dur_dir, test_scp, feature_dir_templ
                 out_lf0_file = out_template.format("lf0", wav_id, "lf0")
                 convert_feature(lf0_dim, lf0_file_path, out_lf0_file, source_lines, predict_frames)
 
-                mgc_file_path = feature_dir_template.format(source_speaker, target_speaker) + "/dmgc/{}.mgc".format(wav_id)
+                mgc_file_path = feature_dir_template.format(source_speaker, target_speaker) + "/VCmgc/{}.mgc".format(wav_id)
                 out_mgc_file = out_template.format("mgc", wav_id, "mgc")
                 convert_feature(mgc_dim, mgc_file_path, out_mgc_file, source_lines, predict_frames)
 
@@ -52,8 +54,10 @@ def convert(source_speaker, target_speaker, dur_dir, test_scp, feature_dir_templ
                 # syn wav
                 out_wav_file = out_template.format("wav", wav_id, "wav")
                 os.system("mkdir -p result/wav/")
-                os.system("%s -mdim 1 -ford 1 -mord 24 -aord 5 -r 16000 -T 1 %s %s -apf %s %s"
-                          % (syn, out_lf0_file, out_mgc_file, out_bap_file, out_wav_file))
+                cmd = "%s -b 0.4 -ford 1 -mord 24 -aord 5 -r 16000 -T 1 %s %s -apf %s %s" % \
+                      (syn, out_lf0_file, out_mgc_file, out_bap_file, out_wav_file)
+                print(cmd)
+                os.system(cmd)
 
 
 def convert_feature(dim, input_file, output_file, source_lines, predict_frames):
@@ -86,32 +90,66 @@ def convert_feature(dim, input_file, output_file, source_lines, predict_frames):
     # if len(predict_frames) == len(origin_frames_list) - 2:
     #     predict_frames.insert(0, origin_frames_list[0])
     #     predict_frames.append(origin_frames_list[-1])
+    
+    # limit the predict frames
+    for i in range(len(predict_frames)):
+        if predict_frames[i] < origin_frames_list[i] * 1 / 3:
+            predict_frames[i] = int(origin_frames_list[i] * 2 / 3)
+        if predict_frames[i] > origin_frames_list[i] * 3:
+            predict_frames[i] = int(origin_frames_list[i] * 1.5)
 
     assert len(predict_frames) == len(origin_frames_list)
 
     new_frames = sum(predict_frames)
     assert sum(origin_frames_list) == frames
 
-    data = np.array(data).reshape(frames, dim).T
+    data = data.reshape(frames, dim).T
     new_data = np.zeros(dim * new_frames).reshape(dim, new_frames)
 
     for i in range(0, dim):
+        if "lf0" in output_file:
+            data[i] = np.exp(data[i])
+
         start_frames = 0
         origin_start_frames = 0
-        for j in range(len(predict_frames)):
-            end_frames = start_frames + predict_frames[j]
-            origin_end_frames = origin_start_frames + origin_frames_list[j]
+        for j in range(0, len(predict_frames), 3):
+            if j+3 <= len(predict_frames):
+                total_predict_frame = sum(predict_frames[j:j+3])
+                total_origin_frame = sum(origin_frames_list[j:j+3])
+            else:
+                total_predict_frame = sum(predict_frames[j:])
+                total_origin_frame = sum(origin_frames_list[j:])
 
-            time_axis = np.arange(origin_end_frames - origin_start_frames)
-            interp = interp1d(time_axis, data[i][origin_start_frames:origin_end_frames],
-                              kind='zero', bounds_error=False, fill_value=0)
+            end_frames = start_frames + total_predict_frame
+            origin_end_frames = origin_start_frames + total_origin_frame
+            time_axis = np.arange(total_origin_frame)
+            interp = interp1d(time_axis, data[i][origin_start_frames:origin_end_frames], kind="slinear")
 
-            time_axis = np.arange(predict_frames[j]) * origin_frames_list[j] / predict_frames[j]
-
-            new_data[i][start_frames:end_frames] = new_data[i][start_frames:end_frames] + interp(time_axis)
+            if total_predict_frame > total_origin_frame:
+                step = round((total_origin_frame -1) / (total_predict_frame-1), 2)
+                time_axis = np.arange(0, total_origin_frame, step)
+                if time_axis.shape[0] > total_predict_frame:
+                    time_axis = time_axis[0:total_predict_frame]
+                    time_axis[-1] = total_origin_frame - 1
+                if time_axis[-1] > total_origin_frame - 1:
+                    time_axis[-1] = total_origin_frame - 1
+            else:
+                time_axis = np.arange(0, total_predict_frame)
+            try:
+                new_data[i][start_frames:end_frames] = interp(time_axis)
+            except:
+                print(total_origin_frame, total_predict_frame)
+                print(time_axis)
             # print(end_frames - start_frames, origin_end_frames - origin_start_frames)
             start_frames = end_frames
             origin_start_frames = origin_end_frames
+
+        if "lf0" in output_file:
+            for ii in range(new_frames):
+                if int(new_data[i][ii]) == 0:
+                    new_data[i][ii] = -1e10
+                else:
+                    new_data[i][ii] = np.log(new_data[i][ii])
 
     new_data = new_data.T.reshape(new_frames * dim, 1)
 
@@ -120,5 +158,5 @@ def convert_feature(dim, input_file, output_file, source_lines, predict_frames):
 
 
 if __name__ == '__main__':
-    feature_dir_template = "/speechlab/users/jhl00/syn24/mlpg_wav/{}_{}_all/"
-    convert("VCC2SM1", 'VCC2TM1', "../dur/", './vcc_scp/all.scp', feature_dir_template)
+    feature_dir_template = "../data/{}_{}_all/"
+    convert("VCC2SM1", 'VCC2TM1', "../dur/", './vcc_scp/test.scp', feature_dir_template)

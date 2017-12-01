@@ -181,6 +181,6 @@ if __name__ == '__main__':
     target_speaker = "vcc2tm1".upper()
     scp_dir = "../train/vcc_scp/"
     feature_dir_template = "/speechlab/users/jhl00/syn24/mlpg_wav/{}_{}_all/"
-    convert(source_speaker, target_speaker, "../dur/", scp_dir+'all.scp', scp_dir+"all.scp", feature_dir_template)
+    convert(source_speaker, target_speaker, "../dur/", scp_dir+'test.scp', scp_dir+"all.scp", feature_dir_template)
 
 
